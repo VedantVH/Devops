@@ -25,57 +25,59 @@ jobs:
           node-version: '20'
 
       - name: 📦 Install Tools
-        run: npm install -g serve lighthouse chromium-browser || true
+        run: npm install -g serve lighthouse
 
       - name: 🌐 Serve Site
         run: |
           serve . -p 3000 -s &
-          echo "Waiting for server to be ready..."
           sleep 5
-          # Verify server is responding
-          curl -s http://localhost:3000 > /dev/null && echo "✅ Server is up" || echo "❌ Server not responding"
+          curl -s http://localhost:3000 | head -5
+          echo "✅ Server ready at http://localhost:3000"
 
       - name: 🔦 Run Lighthouse
         run: |
           lighthouse http://localhost:3000 \
-            --output=json,html \
-            --output-path=./lh-report \
+            --output=json \
+            --output-path=./report.json \
             --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-setuid-sandbox" \
-            --only-categories=performance,accessibility,best-practices,seo \
+            --only-categories=performance \
             --throttling-method=provided \
-            --skip-audits=uses-http2
+            --skip-audits=uses-http2 \
+            --quiet
 
-      - name: 🔍 Debug — Show Score
+      - name: 🔍 Verify Report Exists
         if: always()
         run: |
-          if [ -f lh-report.report.json ]; then
+          echo "=== Files in workspace ==="
+          ls -la *.json 2>/dev/null || echo "No JSON files found"
+          if [ -f report.json ]; then
+            echo "✅ report.json found"
             node -e "
-              const r = require('./lh-report.report.json');
+              const r = require('./report.json');
               const score = Math.round(r.categories.performance.score * 100);
-              console.log('Raw performance score:', score);
-              console.log('LCP:', r.audits['largest-contentful-paint']?.displayValue);
-              console.log('TBT:', r.audits['total-blocking-time']?.displayValue);
+              console.log('Performance Score:', score);
             "
           else
-            echo "No report file found!"
-            ls -la
+            echo "❌ report.json NOT found — Lighthouse may have failed"
           fi
 
-      - name: 📎 Upload Lighthouse Report
+      - name: 📎 Upload Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: lighthouse-report-${{ github.sha }}
-          path: |
-            lh-report.report.html
-            lh-report.report.json
+          path: report.json
           retention-days: 30
 
       - name: 🚦 Performance Gate Check
         run: |
           node -e "
             const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('lh-report.report.json', 'utf8'));
+            if (!fs.existsSync('report.json')) {
+              console.error('report.json not found!');
+              process.exit(1);
+            }
+            const report = JSON.parse(fs.readFileSync('report.json', 'utf8'));
             const score = Math.round(report.categories.performance.score * 100);
             const threshold = parseInt(process.env.PERF_THRESHOLD || '80');
             console.log('');
@@ -96,15 +98,17 @@ jobs:
           PERF_THRESHOLD: 80
 
       - name: 📊 Record Score History
-        if: github.ref == 'refs/heads/main'
+        if: always() && github.ref == 'refs/heads/main'
         run: |
-          SCORE=$(node -e "const r=require('./lh-report.report.json');console.log(Math.round(r.categories.performance.score*100));")
-          echo "{\"score\":$SCORE,\"sha\":\"${{ github.sha }}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> scores.json
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add scores.json
-          git commit -m "ci: record perf score $SCORE" || echo "No changes"
-          git push || echo "Push failed"
+          if [ -f report.json ]; then
+            SCORE=$(node -e "const r=require('./report.json');console.log(Math.round(r.categories.performance.score*100));")
+            echo "{\"score\":$SCORE,\"sha\":\"${{ github.sha }}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> scores.json
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+            git add scores.json
+            git commit -m "ci: record perf score $SCORE" || echo "No changes"
+            git push || echo "Push failed"
+          fi
 
   deploy:
     name: Deploy to GitHub Pages
@@ -114,8 +118,6 @@ jobs:
 
     permissions:
       contents: write
-      pages: write
-      id-token: write
 
     steps:
       - name: 📥 Checkout
