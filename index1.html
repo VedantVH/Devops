@@ -1,1 +1,900 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PerfGuard — Performance-Gated CI/CD</title>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #1: Render-blocking font import (no font-display) -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap"/>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #2: Unused CSS library loaded synchronously -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+
+  <style>
+    /* ── Reset & Variables ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --ink:    #0c0c10;
+      --paper:  #f5f2eb;
+      --warm:   #f0ebe0;
+      --red:    #d63030;
+      --green:  #1a7a4a;
+      --amber:  #c47f00;
+      --muted:  #8a8070;
+      --border: #d6cfc0;
+      --mono:   'Fragment Mono', monospace;
+      --display:'Bebas Neue', sans-serif;
+      --body:   'DM Sans', sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--body);
+      font-size: 16px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── Noise texture overlay ─────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.4;
+    }
+
+    /* ── Nav ───────────────────────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--paper);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 48px;
+      animation: slideDown 0.6s ease both;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .nav-logo {
+      font-family: var(--display);
+      font-size: 22px;
+      letter-spacing: 2px;
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--red); }
+
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      letter-spacing: 0.5px;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--ink); }
+
+    .nav-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: var(--red);
+      color: #fff;
+      padding: 4px 12px;
+      border-radius: 2px;
+      letter-spacing: 1px;
+    }
+
+    /* ── Hero ──────────────────────────────────────────────── */
+    .hero {
+      min-height: 90vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 0;
+      padding: 80px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Diagonal background split */
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 45%;
+      height: 100%;
+      background: var(--warm);
+      clip-path: polygon(8% 0, 100% 0, 100% 100%, 0% 100%);
+      z-index: 0;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      animation: fadeUp 0.8s ease 0.2s both;
+    }
+
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .hero-eyebrow::before {
+      content: '';
+      display: block;
+      width: 32px;
+      height: 1px;
+      background: var(--muted);
+    }
+
+    h1 {
+      font-family: var(--display);
+      font-size: clamp(56px, 8vw, 104px);
+      line-height: 0.92;
+      letter-spacing: 2px;
+      margin-bottom: 28px;
+    }
+
+    h1 .line-red { color: var(--red); display: block; }
+    h1 .line-green { color: var(--green); display: block; }
+
+    .hero-desc {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 420px;
+      margin-bottom: 40px;
+      line-height: 1.7;
+    }
+
+    .cta-group {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      font-family: var(--mono);
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 14px 28px;
+      border-radius: 2px;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+      border: none;
+    }
+
+    .btn-primary {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .btn-primary:hover {
+      background: var(--red);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover {
+      border-color: var(--ink);
+    }
+
+    /* Hero visual — score gauge */
+    .hero-visual {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      animation: fadeUp 0.8s ease 0.4s both;
+    }
+
+    .gauge-card {
+      background: var(--ink);
+      color: var(--paper);
+      border-radius: 16px;
+      padding: 40px;
+      width: 300px;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.25);
+    }
+
+    .gauge-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #666;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+
+    .gauge-ring {
+      width: 160px;
+      height: 160px;
+      margin: 0 auto 24px;
+      position: relative;
+    }
+
+    .gauge-ring svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+
+    .gauge-track {
+      fill: none;
+      stroke: #222;
+      stroke-width: 10;
+    }
+
+    .gauge-fill {
+      fill: none;
+      stroke: var(--red);
+      stroke-width: 10;
+      stroke-linecap: round;
+      stroke-dasharray: 440;
+      stroke-dashoffset: 220; /* ~50% = score 50 */
+      animation: fillGauge 2s ease 1s both;
+    }
+
+    @keyframes fillGauge {
+      from { stroke-dashoffset: 440; }
+      to   { stroke-dashoffset: 220; }
+    }
+
+    .gauge-score {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: var(--display);
+      font-size: 52px;
+      letter-spacing: 2px;
+      color: var(--red);
+      line-height: 1;
+    }
+
+    .gauge-score small {
+      font-family: var(--mono);
+      font-size: 14px;
+      display: block;
+      color: #555;
+      margin-top: 4px;
+    }
+
+    .gauge-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 12px;
+      background: #1a0000;
+      border: 1px solid #4a0000;
+      color: #ff6b6b;
+      padding: 8px 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+
+    .gauge-status .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .gauge-meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #444;
+      border-top: 1px solid #222;
+      padding-top: 16px;
+      text-align: left;
+    }
+
+    .gauge-meta div {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+
+    .gauge-meta .pass { color: #4ade80; }
+    .gauge-meta .fail { color: #f87171; }
+
+    /* Floating tag badges */
+    .float-badge {
+      position: absolute;
+      font-family: var(--mono);
+      font-size: 10px;
+      background: var(--paper);
+      color: var(--ink);
+      padding: 6px 12px;
+      border-radius: 100px;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    .float-badge:nth-child(1) { top: -20px; left: -40px; animation: float 4s ease-in-out infinite; }
+    .float-badge:nth-child(2) { bottom: 20px; left: -60px; animation: float 4s ease-in-out 1s infinite; }
+    .float-badge:nth-child(3) { top: 30px; right: -50px; animation: float 4s ease-in-out 2s infinite; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+
+    /* ── How it works ─────────────────────────────────────── */
+    .section {
+      padding: 100px 48px;
+      max-width: 1100px;
+      margin: 0 auto;
+      animation: fadeUp 0.6s ease both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 30%;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(30px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .section-eyebrow {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .section-title {
+      font-family: var(--display);
+      font-size: clamp(36px, 5vw, 60px);
+      letter-spacing: 1px;
+      margin-bottom: 60px;
+      line-height: 1;
+    }
+
+    /* Pipeline steps */
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      position: relative;
+      margin-bottom: 60px;
+    }
+
+    .pipeline::before {
+      content: '';
+      position: absolute;
+      top: 32px;
+      left: 10%;
+      right: 10%;
+      height: 2px;
+      background: linear-gradient(to right, var(--border), var(--ink), var(--border));
+      z-index: 0;
+    }
+
+    .pipe-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+      padding: 0 8px;
+    }
+
+    .pipe-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      border: 2px solid var(--border);
+      background: var(--paper);
+      transition: all 0.3s;
+    }
+
+    .pipe-step:hover .pipe-icon {
+      border-color: var(--ink);
+      transform: scale(1.08);
+    }
+
+    .pipe-step.gate .pipe-icon {
+      border-color: var(--red);
+      background: #fff5f5;
+    }
+
+    .pipe-step.gate-pass .pipe-icon {
+      border-color: var(--green);
+      background: #f0fff5;
+    }
+
+    .pipe-name {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .pipe-step.gate .pipe-name { color: var(--red); }
+    .pipe-step.gate-pass .pipe-name { color: var(--green); }
+
+    /* Code block */
+    .code-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: 40px;
+    }
+
+    .code-block {
+      background: var(--ink);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid #222;
+    }
+
+    .code-title {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #666;
+    }
+
+    .code-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+    }
+
+    pre {
+      padding: 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.7;
+      color: #a0a0b0;
+      overflow-x: auto;
+    }
+
+    .c-green { color: #4ade80; }
+    .c-red   { color: #f87171; }
+    .c-blue  { color: #60a5fa; }
+    .c-amber { color: #fbbf24; }
+    .c-gray  { color: #4b5563; }
+
+    /* ── Stats bar ─────────────────────────────────────────── */
+    .stats-bar {
+      background: var(--ink);
+      color: var(--paper);
+      padding: 60px 48px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 40px;
+      text-align: center;
+    }
+
+    .stat-num {
+      font-family: var(--display);
+      font-size: 56px;
+      letter-spacing: 2px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .stat-num.red { color: var(--red); }
+    .stat-num.green { color: #4ade80; }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #666;
+    }
+
+    /* ── Features grid ─────────────────────────────────────── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 48px;
+    }
+
+    .feature {
+      background: var(--paper);
+      padding: 36px;
+      transition: background 0.2s;
+    }
+
+    .feature:hover { background: var(--warm); }
+
+    .feature-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+
+    .feature-title {
+      font-family: var(--display);
+      font-size: 22px;
+      letter-spacing: 1px;
+      margin-bottom: 10px;
+    }
+
+    .feature-desc {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-logo {
+      font-family: var(--display);
+      font-size: 18px;
+      letter-spacing: 2px;
+    }
+
+    .footer-logo span { color: var(--red); }
+
+    .footer-meta {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      nav { padding: 16px 24px; }
+      .nav-links, .nav-badge { display: none; }
+      .hero { grid-template-columns: 1fr; padding: 60px 24px; }
+      .hero::after { display: none; }
+      .hero-visual { margin-top: 48px; }
+      .pipeline { grid-template-columns: 1fr; gap: 24px; }
+      .pipeline::before { display: none; }
+      .code-pair { grid-template-columns: 1fr; }
+      .stats-bar { grid-template-columns: repeat(2, 1fr); padding: 40px 24px; }
+      .features { grid-template-columns: 1fr; }
+      .section { padding: 60px 24px; }
+      footer { flex-direction: column; gap: 16px; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav>
+    <a href="#" class="nav-logo">PERF<span>GUARD</span></a>
+    <ul class="nav-links">
+      <li><a href="#how">How it Works</a></li>
+      <li><a href="#pipeline">Pipeline</a></li>
+      <li><a href="https://github.com" target="_blank">GitHub</a></li>
+    </ul>
+    <span class="nav-badge">v1.0 — PHASE 1</span>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-content">
+      <div class="hero-eyebrow">Performance as Code</div>
+      <h1>
+        SLOW CODE
+        <span class="line-red">NEVER</span>
+        <span class="line-green">SHIPS.</span>
+      </h1>
+      <p class="hero-desc">
+        A CI/CD pipeline that automatically audits your site with Lighthouse on every commit — and <strong>blocks the deployment</strong> if performance drops below your threshold.
+      </p>
+      <div class="cta-group">
+        <a href="#how" class="btn btn-primary">See How It Works</a>
+        <a href="https://github.com" class="btn btn-ghost" target="_blank">View on GitHub →</a>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div style="position:relative;">
+        <span class="float-badge">🔦 Lighthouse CLI</span>
+        <span class="float-badge">⚙️ GitHub Actions</span>
+        <span class="float-badge">🚦 Gate: FAIL</span>
+
+        <div class="gauge-card">
+          <div class="gauge-label">// Lighthouse Score</div>
+
+          <div class="gauge-ring">
+            <svg viewBox="0 0 160 160">
+              <circle class="gauge-track" cx="80" cy="80" r="70"/>
+              <circle class="gauge-fill" cx="80" cy="80" r="70"/>
+            </svg>
+            <div class="gauge-score">
+              50
+              <small>/ 100</small>
+            </div>
+          </div>
+
+          <div class="gauge-status">
+            <span class="dot"></span>
+            DEPLOYMENT BLOCKED
+          </div>
+
+          <div class="gauge-meta">
+            <div><span>Threshold</span><span class="fail">80</span></div>
+            <div><span>Score</span><span class="fail">50 ✗</span></div>
+            <div><span>Delta</span><span class="fail">−30 pts</span></div>
+            <div><span>Status</span><span class="fail">FAILED</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats -->
+  <div class="stats-bar">
+    <div>
+      <div class="stat-num red">50</div>
+      <div class="stat-label">Lighthouse Score (before)</div>
+    </div>
+    <div>
+      <div class="stat-num green">94</div>
+      <div class="stat-label">Score After Optimizing</div>
+    </div>
+    <div>
+      <div class="stat-num">80</div>
+      <div class="stat-label">Deployment Threshold</div>
+    </div>
+    <div>
+      <div class="stat-num green">0</div>
+      <div class="stat-label">Slow Deploys Allowed</div>
+    </div>
+  </div>
+
+  <!-- How it Works -->
+  <section class="section" id="how">
+    <div class="section-eyebrow">// Architecture</div>
+    <div class="section-title">THE PIPELINE</div>
+
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-icon">📝</div>
+        <div class="pipe-name">Push<br/>Code</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-icon">🔨</div>
+        <div class="pipe-name">Build<br/>App</div>
+      </div>
+      <div class="pipe-step gate">
+        <div class="pipe-icon">🔦</div>
+        <div class="pipe-name">Lighthouse<br/>Audit</div>
+      </div>
+      <div class="pipe-step gate">
+        <div class="pipe-icon">🚦</div>
+        <div class="pipe-name">Perf<br/>Gate</div>
+      </div>
+      <div class="pipe-step gate-pass">
+        <div class="pipe-icon">🚀</div>
+        <div class="pipe-name">Deploy<br/>Production</div>
+      </div>
+    </div>
+
+    <div class="code-pair">
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-title">perf-gate.yml — The Workflow</span>
+          <span class="code-dot" style="background:#f87171"></span>
+        </div>
+        <pre>
+<span class="c-blue">name:</span> Performance Gate
+<span class="c-blue">on:</span> [push]
+
+<span class="c-blue">jobs:</span>
+  <span class="c-blue">audit:</span>
+    <span class="c-blue">runs-on:</span> ubuntu-latest
+    <span class="c-blue">steps:</span>
+      - <span class="c-blue">uses:</span> actions/checkout@v4
+      - <span class="c-blue">name:</span> Install
+        <span class="c-blue">run:</span> npm ci
+
+      - <span class="c-blue">name:</span> 🔦 Run Lighthouse
+        <span class="c-blue">run:</span> <span class="c-amber">npx lighthouse $URL \
+          --output json \
+          --output-path report.json</span>
+
+      - <span class="c-blue">name:</span> 🚦 Performance Gate
+        <span class="c-blue">run:</span> node check-score.js
+        <span class="c-gray"># exits 1 if score &lt; 80</span>
+
+      - <span class="c-blue">name:</span> 🚀 Deploy
+        <span class="c-blue">if:</span> <span class="c-green">success()</span>
+        <span class="c-blue">run:</span> echo "Deploying!"
+        </pre>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-title">check-score.js — The Gate</span>
+          <span class="code-dot" style="background:#4ade80"></span>
+        </div>
+        <pre>
+<span class="c-blue">const</span> fs = require(<span class="c-green">'fs'</span>);
+
+<span class="c-gray">// Read the Lighthouse JSON report</span>
+<span class="c-blue">const</span> report = JSON.parse(
+  fs.readFileSync(<span class="c-green">'report.json'</span>, <span class="c-green">'utf8'</span>)
+);
+
+<span class="c-blue">const</span> score =
+  report.categories.performance.score * 100;
+
+<span class="c-blue">const</span> THRESHOLD =
+  process.env.PERF_THRESHOLD || 80;
+
+console.log(<span class="c-green">`Score: ${score}/100`</span>);
+console.log(<span class="c-green">`Threshold: ${THRESHOLD}`</span>);
+
+<span class="c-blue">if</span> (score &lt; THRESHOLD) {
+  console.error(<span class="c-red">`❌ GATE FAILED`</span>);
+  process.exit(<span class="c-red">1</span>); <span class="c-gray">// Blocks deploy</span>
+}
+
+console.log(<span class="c-green">'✅ Gate passed!'</span>);
+        </pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="section" id="pipeline" style="padding-top:0;">
+    <div class="section-eyebrow">// Why It Matters</div>
+    <div class="section-title">PERFORMANCE<br/>AS CODE</div>
+
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">🚦</div>
+        <div class="feature-title">Automated Gate</div>
+        <div class="feature-desc">Every push triggers a Lighthouse audit. Scores below threshold automatically block the deploy — no human review needed.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📊</div>
+        <div class="feature-title">Score History</div>
+        <div class="feature-desc">Every run appends to a <code>scores.json</code> file. Watch your performance trend over time across every commit.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⚙️</div>
+        <div class="feature-title">Configurable</div>
+        <div class="feature-desc">Set your threshold via the <code>PERF_THRESHOLD</code> env var. Default is 80 — raise it as your team matures.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔦</div>
+        <div class="feature-title">Lighthouse Reports</div>
+        <div class="feature-desc">Full HTML Lighthouse reports are saved as pipeline artifacts so you can diagnose exactly what caused a failure.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📝</div>
+        <div class="feature-title">PR Comments</div>
+        <div class="feature-desc">Score summaries are posted directly to pull requests via <code>$GITHUB_STEP_SUMMARY</code> for instant feedback.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🚀</div>
+        <div class="feature-title">Zero Overhead</div>
+        <div class="feature-desc">Runs entirely on GitHub Actions free tier. No external services, no API keys, no monthly fees.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-logo">PERF<span>GUARD</span></div>
+    <div class="footer-meta">
+      Phase 1 of 5 &nbsp;·&nbsp; Performance-Gated CI/CD &nbsp;·&nbsp; Built with GitHub Actions + Lighthouse CLI
+    </div>
+  </footer>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #3: Long main-thread blocking (inflates TBT) -->
+  <script>
+    // Blocks the main thread for 600ms — Lighthouse will flag this as TBT
+    const start = Date.now();
+    while (Date.now() - start < 600) { /* intentional blocking — do not remove for demo */ }
+  </script>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #4: Multiple large render-blocking scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #5: Enormous unoptimized images (inflates LCP) -->
+  <div style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0.01;">
+    <img src="https://picsum.photos/seed/perf1/3000/2000" width="3000" height="2000" alt="large1"/>
+    <img src="https://picsum.photos/seed/perf2/3000/2000" width="3000" height="2000" alt="large2"/>
+  </div>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #6: Forced layout thrashing via JS -->
+  <script>
+    // Forces repeated layout recalculations — tanks CLS and TBT
+    document.addEventListener('DOMContentLoaded', () => {
+      const el = document.body;
+      for (let i = 0; i < 200; i++) {
+        el.style.paddingTop = (i % 2 === 0) ? '0px' : '1px';
+        void el.offsetHeight; // forces reflow
+      }
+      el.style.paddingTop = '0px';
+
+      // Gauge counter animation
+      const scoreEl = document.querySelector('.gauge-score');
+      if (scoreEl) {
+        let count = 0;
+        const timer = setInterval(() => {
+          count += 2;
+          if (count >= 50) { count = 50; clearInterval(timer); }
+          scoreEl.innerHTML = `${count}<small>/ 100</small>`;
+        }, 40);
+      }
+    });
+  </script>
+
+</body>
+</html>
