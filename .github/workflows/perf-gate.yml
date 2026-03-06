@@ -39,7 +39,9 @@ jobs:
             --output=json \
             --output-path=./report.json \
             --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-setuid-sandbox" \
-            --preset=desktop \
+            --throttling.cpuSlowdownMultiplier=4 \
+            --throttling.rttMs=150 \
+            --throttling.throughputKbps=1638 \
             --max-wait-for-load=60000
 
       - name: 🔍 Verify Report
@@ -51,9 +53,11 @@ jobs:
               const r = require('./report.json');
               console.log('URL audited :', r.finalUrl);
               console.log('Runtime error:', r.runtimeError?.message ?? 'none');
-              console.log('Categories   :', Object.keys(r.categories || {}));
               const p = r.categories?.performance?.score;
               console.log('Perf score   :', p, '=> ', Math.round((p??0)*100), '/100');
+              console.log('LCP:', r.audits?.['largest-contentful-paint']?.displayValue);
+              console.log('TBT:', r.audits?.['total-blocking-time']?.displayValue);
+              console.log('CLS:', r.audits?.['cumulative-layout-shift']?.displayValue);
             "
           else
             echo "❌ report.json NOT found"
