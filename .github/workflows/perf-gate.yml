@@ -1,0 +1,98 @@
+name: 🚦 Performance Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Only one deploy runs at a time
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job 1: Audit & Gate ────────────────────────────────────
+  performance-gate:
+    name: Lighthouse Audit + Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # Serve the site locally so Lighthouse can audit it
+      - name: 🌐 Serve Site
+        run: |
+          npm install -g serve
+          serve . -p 3000 &
+          sleep 3
+          echo "SITE_URL=http://localhost:3000" >> $GITHUB_ENV
+
+      - name: 🔦 Run Lighthouse
+        run: |
+          npx lighthouse $SITE_URL \
+            --output=json,html \
+            --output-path=./lh-report \
+            --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage" \
+            --only-categories=performance,accessibility,best-practices,seo
+
+      # Upload the full HTML report as a downloadable artifact
+      - name: 📎 Upload Lighthouse Report
+        uses: actions/upload-artifact@v4
+        if: always()   # Upload even if gate fails
+        with:
+          name: lighthouse-report-${{ github.sha }}
+          path: lh-report.report.html
+          retention-days: 30
+
+      # THE GATE — this step blocks deployment on failure
+      - name: 🚦 Performance Gate Check
+        env:
+          PERF_THRESHOLD: 80   # Change this to raise/lower the bar
+        run: node scripts/check-score.js lh-report.report.json
+
+      # Append score to history (for the Phase 4 dashboard)
+      - name: 📊 Record Score History
+        if: github.ref == 'refs/heads/main'
+        run: |
+          SCORE=$(node -e "
+            const r = require('./lh-report.report.json');
+            console.log(Math.round(r.categories.performance.score * 100));
+          ")
+          ENTRY="{\"score\":$SCORE,\"sha\":\"${{ github.sha }}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"run\":\"${{ github.run_number }}\"}"
+          echo $ENTRY >> scores.json
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add scores.json
+          git commit -m "ci: record perf score $SCORE [run #${{ github.run_number }}]" || echo "No changes to commit"
+          git push || echo "Push failed (ok on forks)"
+
+  # ── Job 2: Deploy (only runs if Job 1 passes) ──────────────
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: performance-gate   # Depends on gate passing!
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🚀 Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages
