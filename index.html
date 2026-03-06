@@ -852,22 +852,47 @@ console.log(<span class="c-green">'✅ Gate passed!'</span>);
     </div>
   </footer>
 
-  <!-- 🐢 INTENTIONAL PERF ISSUE #3: Synchronous heavy script at end of body -->
+  <!-- 🐢 INTENTIONAL PERF ISSUE #3: Long main-thread blocking (inflates TBT) -->
   <script>
-    // Simulates render-blocking work for Lighthouse to flag
-    // In the optimized version, this would be deferred or removed
+    // Blocks the main thread for 600ms — Lighthouse will flag this as TBT
     const start = Date.now();
-    while (Date.now() - start < 100) { /* intentional blocking */ }
+    while (Date.now() - start < 600) { /* intentional blocking — do not remove for demo */ }
+  </script>
 
-    // Gauge counter animation
-    const scoreEl = document.querySelector('.gauge-score');
-    let count = 0;
-    const target = 50;
-    const timer = setInterval(() => {
-      count += 2;
-      if (count >= target) { count = target; clearInterval(timer); }
-      scoreEl.innerHTML = `${count}<small>/ 100</small>`;
-    }, 40);
+  <!-- 🐢 INTENTIONAL PERF ISSUE #4: Multiple large render-blocking scripts -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #5: Enormous unoptimized images (inflates LCP) -->
+  <div style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0.01;">
+    <img src="https://picsum.photos/seed/perf1/3000/2000" width="3000" height="2000" alt="large1"/>
+    <img src="https://picsum.photos/seed/perf2/3000/2000" width="3000" height="2000" alt="large2"/>
+  </div>
+
+  <!-- 🐢 INTENTIONAL PERF ISSUE #6: Forced layout thrashing via JS -->
+  <script>
+    // Forces repeated layout recalculations — tanks CLS and TBT
+    document.addEventListener('DOMContentLoaded', () => {
+      const el = document.body;
+      for (let i = 0; i < 200; i++) {
+        el.style.paddingTop = (i % 2 === 0) ? '0px' : '1px';
+        void el.offsetHeight; // forces reflow
+      }
+      el.style.paddingTop = '0px';
+
+      // Gauge counter animation
+      const scoreEl = document.querySelector('.gauge-score');
+      if (scoreEl) {
+        let count = 0;
+        const timer = setInterval(() => {
+          count += 2;
+          if (count >= 50) { count = 50; clearInterval(timer); }
+          scoreEl.innerHTML = `${count}<small>/ 100</small>`;
+        }, 40);
+      }
+    });
   </script>
 
 </body>
