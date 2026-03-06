@@ -25,40 +25,50 @@ jobs:
           node-version: '20'
 
       - name: 📦 Install Tools
-        run: npm install -g serve lighthouse
+        run: |
+          npm install -g lighthouse
+          # Use Python's built-in HTTP server — more reliable in CI than serve
+          echo "Tools installed"
 
       - name: 🌐 Serve Site
         run: |
-          serve . -p 3000 -s &
-          sleep 5
-          curl -s http://localhost:3000 | head -5
-          echo "✅ Server ready at http://localhost:3000"
+          # Python HTTP server is always available on ubuntu-latest
+          python3 -m http.server 3000 &
+          sleep 3
+          # Confirm server works and page loads
+          echo "=== Server response ==="
+          curl -s -o /dev/null -w "HTTP Status: %{http_code}\n" http://localhost:3000
+          curl -s http://localhost:3000 | head -3
 
       - name: 🔦 Run Lighthouse
         run: |
-          lighthouse http://localhost:3000 \
+          lighthouse http://localhost:3000/index.html \
             --output=json \
             --output-path=./report.json \
-            --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-setuid-sandbox" \
+            --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-setuid-sandbox --ignore-certificate-errors" \
             --only-categories=performance \
             --throttling-method=provided \
-            --skip-audits=uses-http2 \
-            --quiet
+            --skip-audits=uses-http2,redirects-http \
+            --max-wait-for-load=45000
 
-      - name: 🔍 Verify Report Exists
+      - name: 🔍 Verify Report
         if: always()
         run: |
-          echo "=== Files in workspace ==="
-          ls -la *.json 2>/dev/null || echo "No JSON files found"
+          echo "=== Workspace files ==="
+          ls -la
+          echo ""
           if [ -f report.json ]; then
-            echo "✅ report.json found"
+            echo "✅ report.json EXISTS ($(wc -c < report.json) bytes)"
             node -e "
               const r = require('./report.json');
-              const score = Math.round(r.categories.performance.score * 100);
-              console.log('Performance Score:', score);
+              const perf = r.categories?.performance;
+              console.log('performance.score raw:', perf?.score);
+              console.log('Score x100:', Math.round((perf?.score ?? 0) * 100));
+              console.log('runtimeError:', r.runtimeError?.message ?? 'none');
+              console.log('URL audited:', r.finalUrl ?? r.requestedUrl);
             "
           else
-            echo "❌ report.json NOT found — Lighthouse may have failed"
+            echo "❌ report.json NOT FOUND"
           fi
 
       - name: 📎 Upload Report
@@ -73,13 +83,23 @@ jobs:
         run: |
           node -e "
             const fs = require('fs');
-            if (!fs.existsSync('report.json')) {
-              console.error('report.json not found!');
+            const report = JSON.parse(fs.readFileSync('report.json', 'utf8'));
+
+            // Check for runtime errors first
+            if (report.runtimeError) {
+              console.error('Lighthouse runtime error:', report.runtimeError.message);
               process.exit(1);
             }
-            const report = JSON.parse(fs.readFileSync('report.json', 'utf8'));
-            const score = Math.round(report.categories.performance.score * 100);
+
+            const raw = report.categories?.performance?.score;
+            if (raw === null || raw === undefined) {
+              console.error('Performance score is null — page may not have loaded');
+              process.exit(1);
+            }
+
+            const score = Math.round(raw * 100);
             const threshold = parseInt(process.env.PERF_THRESHOLD || '80');
+
             console.log('');
             console.log('  =============================================');
             console.log('  LIGHTHOUSE PERFORMANCE GATE');
@@ -87,6 +107,7 @@ jobs:
             console.log('  Score:     ' + score + ' / 100');
             console.log('  Threshold: ' + threshold);
             console.log('  =============================================');
+
             if (score < threshold) {
               console.error('  GATE FAILED - Deployment BLOCKED');
               console.error('  Score ' + score + ' is below threshold ' + threshold);
@@ -98,10 +119,10 @@ jobs:
           PERF_THRESHOLD: 80
 
       - name: 📊 Record Score History
-        if: always() && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         run: |
           if [ -f report.json ]; then
-            SCORE=$(node -e "const r=require('./report.json');console.log(Math.round(r.categories.performance.score*100));")
+            SCORE=$(node -e "const r=require('./report.json');console.log(Math.round((r.categories?.performance?.score??0)*100));")
             echo "{\"score\":$SCORE,\"sha\":\"${{ github.sha }}\",\"date\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> scores.json
             git config user.name "GitHub Actions"
             git config user.email "actions@github.com"
