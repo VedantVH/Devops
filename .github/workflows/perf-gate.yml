@@ -25,19 +25,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # No cache: 'npm' — this project has no package.json
+
+      - name: 📦 Install Tools
+        run: npm install -g serve lighthouse
 
       # Serve the site locally so Lighthouse can audit it
       - name: 🌐 Serve Site
         run: |
-          npm install -g serve
           serve . -p 3000 &
           sleep 3
           echo "SITE_URL=http://localhost:3000" >> $GITHUB_ENV
 
       - name: 🔦 Run Lighthouse
         run: |
-          npx lighthouse $SITE_URL \
+          lighthouse $SITE_URL \
             --output=json,html \
             --output-path=./lh-report \
             --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage" \
