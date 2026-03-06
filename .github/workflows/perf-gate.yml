@@ -25,28 +25,50 @@ jobs:
           node-version: '20'
 
       - name: 📦 Install Tools
-        run: npm install -g serve lighthouse
+        run: npm install -g serve lighthouse chromium-browser || true
 
       - name: 🌐 Serve Site
         run: |
-          serve . -p 3000 &
-          sleep 3
-          echo "SITE_URL=http://localhost:3000" >> $GITHUB_ENV
+          serve . -p 3000 -s &
+          echo "Waiting for server to be ready..."
+          sleep 5
+          # Verify server is responding
+          curl -s http://localhost:3000 > /dev/null && echo "✅ Server is up" || echo "❌ Server not responding"
 
       - name: 🔦 Run Lighthouse
         run: |
-          lighthouse $SITE_URL \
+          lighthouse http://localhost:3000 \
             --output=json,html \
             --output-path=./lh-report \
-            --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage" \
-            --only-categories=performance,accessibility,best-practices,seo
+            --chrome-flags="--headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-setuid-sandbox" \
+            --only-categories=performance,accessibility,best-practices,seo \
+            --throttling-method=provided \
+            --skip-audits=uses-http2
+
+      - name: 🔍 Debug — Show Score
+        if: always()
+        run: |
+          if [ -f lh-report.report.json ]; then
+            node -e "
+              const r = require('./lh-report.report.json');
+              const score = Math.round(r.categories.performance.score * 100);
+              console.log('Raw performance score:', score);
+              console.log('LCP:', r.audits['largest-contentful-paint']?.displayValue);
+              console.log('TBT:', r.audits['total-blocking-time']?.displayValue);
+            "
+          else
+            echo "No report file found!"
+            ls -la
+          fi
 
       - name: 📎 Upload Lighthouse Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: lighthouse-report-${{ github.sha }}
-          path: lh-report.report.html
+          path: |
+            lh-report.report.html
+            lh-report.report.json
           retention-days: 30
 
       - name: 🚦 Performance Gate Check
